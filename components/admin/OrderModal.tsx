@@ -77,8 +77,10 @@ export function OrderModal({ isOpen, onClose, order, onStatusChange }: OrderModa
                 className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
               >
                 <option value="pending">Pending</option>
-                <option value="paid">Paid</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="processing">Processing</option>
                 <option value="shipped">Shipped</option>
+                <option value="delivered">Delivered</option>
                 <option value="cancelled">Cancelled</option>
               </select>
               {newStatus !== order.status && (

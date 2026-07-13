@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Upload, X } from "lucide-react";
 import { addDoc, collection } from "firebase/firestore";
 import toast from "react-hot-toast";
 
@@ -26,38 +26,113 @@ const initialForm = {
 
 export function BrandModal({ isOpen, onClose, brand }: BrandModalProps) {
   const [loading, setLoading] = useState(false);
+  const [imagePreview, setImagePreview] = useState("");
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
 
   const [formData, setFormData] = useState<Partial<Brand>>(initialForm);
+
+  const clearObjectUrl = () => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+  };
 
   // populate form when editing
   useEffect(() => {
     if (brand) {
       setFormData(brand);
+      setImagePreview(brand.image ?? "");
     } else {
       setFormData(initialForm);
+      setImagePreview("");
+    }
+
+    setSelectedImage(null);
+    clearObjectUrl();
+
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
     }
   }, [brand, isOpen]);
 
   if (!isOpen) return null;
+
+  const handleUpload = async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("folder", "brands");
+
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+
+      console.log("File uploaded successfully:", data.url);
+
+      return data.url as string;
+    } else {
+      throw new Error("Image upload failed");
+    }
+  };
+
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    clearObjectUrl();
+
+    const objectUrl = URL.createObjectURL(file);
+    objectUrlRef.current = objectUrl;
+
+    setSelectedImage(file);
+    setImagePreview(objectUrl);
+  };
+
+  const handleRemoveImage = () => {
+    clearObjectUrl();
+    setSelectedImage(null);
+    setImagePreview("");
+    setFormData((prev) => ({
+      ...prev,
+      image: "",
+    }));
+
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     setLoading(true);
 
-    const payload = {
-      title: formData.title ?? "",
-      description: formData.description ?? "",
-      image: formData.image ?? "",
-      slug: {
-        current:
-          formData.slug?.current ||
-          formData.title?.trim().toLowerCase().replace(/\s+/g, "-") ||
-          "",
-      },
-    };
-
     try {
+      let imageUrl = formData.image ?? "";
+
+      if (selectedImage) {
+        imageUrl = await handleUpload(selectedImage);
+      }
+
+      const payload = {
+        title: formData.title ?? "",
+        description: formData.description ?? "",
+        image: imageUrl,
+        slug: {
+          current:
+            formData.slug?.current ||
+            formData.title?.trim().toLowerCase().replace(/\s+/g, "-") ||
+            "",
+        },
+      };
+
       // update form
       if (brand) {
         await handleBrandUpdate(brand._id, payload);
@@ -73,6 +148,13 @@ export function BrandModal({ isOpen, onClose, brand }: BrandModalProps) {
       }
 
       setFormData(initialForm);
+      setSelectedImage(null);
+      setImagePreview("");
+      clearObjectUrl();
+
+      if (imageInputRef.current) {
+        imageInputRef.current.value = "";
+      }
 
       onClose();
     } catch (error) {
@@ -109,6 +191,7 @@ export function BrandModal({ isOpen, onClose, brand }: BrandModalProps) {
             <input
               required
               type="text"
+              placeholder="Enter brand name"
               value={formData.title ?? ""}
               onChange={(e) =>
                 setFormData((prev) => ({
@@ -116,7 +199,7 @@ export function BrandModal({ isOpen, onClose, brand }: BrandModalProps) {
                   title: e.target.value,
                 }))
               }
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-orange-500"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-orange-500 placeholder:text-sm"
             />
           </div>
 
@@ -128,6 +211,7 @@ export function BrandModal({ isOpen, onClose, brand }: BrandModalProps) {
             <textarea
               required
               rows={3}
+              placeholder="Enter brand description"
               value={formData.description ?? ""}
               onChange={(e) =>
                 setFormData((prev) => ({
@@ -135,24 +219,74 @@ export function BrandModal({ isOpen, onClose, brand }: BrandModalProps) {
                   description: e.target.value,
                 }))
               }
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-orange-500"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-orange-500 placeholder:text-sm"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">Image URL</label>
+            <label className="mb-1 block text-sm font-medium">
+              Brand Image
+            </label>
+
+            {imagePreview ? (
+              <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                <img
+                  src={imagePreview}
+                  alt="Brand preview"
+                  className="h-52 w-full object-cover"
+                />
+
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-white transition hover:bg-black"
+                  aria-label="Remove image"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+                <span
+                  onClick={() => imageInputRef.current?.click()}
+                  className="inline-flex p-2 cursor-pointer items-center justify-center rounded-lg hover:bg-slate-200"
+                >
+                  <Upload size={16} />
+                </span>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  PNG, JPG, GIF or WebP.
+                </p>
+              </div>
+            )}
 
             <input
-              type="text"
-              value={formData.image ?? ""}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  image: e.target.value,
-                }))
-              }
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-orange-500"
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="hidden"
             />
+
+            {imagePreview && (
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium transition hover:bg-slate-50"
+                >
+                  Replace image
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="text-sm font-medium text-slate-600 transition hover:text-slate-900"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end gap-3 border-t border-slate-200 pt-4">

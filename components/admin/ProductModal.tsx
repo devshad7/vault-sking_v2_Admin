@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { X, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import { Brand, Category, Product } from "@/lib/types";
 import {
   fetchBrands,
@@ -46,9 +46,21 @@ const defaultProduct: Partial<Product> = {
   isFeatured: false,
 };
 
+type ImageItem = {
+  url: string;
+  file?: File;
+};
+
 export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
+  const [thumbnailPreview, setThumbnailPreview] = useState("");
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  const [galleryItems, setGalleryItems] = useState<ImageItem[]>([]);
+  const thumbnailInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const thumbnailObjectUrlRef = useRef<string | null>(null);
+  const galleryObjectUrlsRef = useRef<string[]>([]);
 
   useEffect(() => {
     const loadCategories = async () => {
@@ -82,19 +94,73 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
   );
   const [activeTab, setActiveTab] = useState("basic");
 
+  const clearThumbnailObjectUrl = () => {
+    if (thumbnailObjectUrlRef.current) {
+      URL.revokeObjectURL(thumbnailObjectUrlRef.current);
+      thumbnailObjectUrlRef.current = null;
+    }
+  };
+
+  const clearGalleryObjectUrls = () => {
+    galleryObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    galleryObjectUrlsRef.current = [];
+  };
+
+  const clearImageInputs = () => {
+    if (thumbnailInputRef.current) {
+      thumbnailInputRef.current.value = "";
+    }
+
+    if (galleryInputRef.current) {
+      galleryInputRef.current.value = "";
+    }
+  };
+
   // populate form when editing
   useEffect(() => {
     if (product) {
       setFormData(product);
+      setThumbnailPreview(product.thumbnail || "");
+      setGalleryItems(
+        (product.images || []).map((image) => ({ url: image.url })),
+      );
     } else {
       setFormData(defaultProduct);
+      setThumbnailPreview("");
+      setGalleryItems([]);
     }
+
+    setThumbnailFile(null);
+    clearThumbnailObjectUrl();
+    clearGalleryObjectUrls();
+    clearImageInputs();
   }, [product, isOpen]);
+
+  useEffect(() => {
+    return () => {
+      clearThumbnailObjectUrl();
+      clearGalleryObjectUrls();
+    };
+  }, []);
 
   if (!isOpen) return null;
 
   const handleInputChange = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleObjectArrayChange = (
+    field: string,
+    index: number,
+    key: string,
+    value: string,
+  ) => {
+    setFormData((prev) => ({
+      ...prev,
+      [field]: (prev[field as keyof typeof prev] as any[]).map((item, i) =>
+        i === index ? { ...item, [key]: value } : item,
+      ),
+    }));
   };
 
   const handleArrayChange = (field: string, index: number, value: string) => {
@@ -122,8 +188,96 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
     }));
   };
 
+  const handleUpload = async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("folder", "products");
+
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      throw new Error("Image upload failed");
+    }
+
+    const data = await res.json();
+
+    return data.url as string;
+  };
+
+  const handleThumbnailChange = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    clearThumbnailObjectUrl();
+
+    const objectUrl = URL.createObjectURL(file);
+    thumbnailObjectUrlRef.current = objectUrl;
+
+    setThumbnailFile(file);
+    setThumbnailPreview(objectUrl);
+  };
+
+  const handleRemoveThumbnail = () => {
+    clearThumbnailObjectUrl();
+    setThumbnailFile(null);
+    setThumbnailPreview("");
+    setFormData((prev) => ({
+      ...prev,
+      thumbnail: "",
+    }));
+
+    if (thumbnailInputRef.current) {
+      thumbnailInputRef.current.value = "";
+    }
+  };
+
+  const handleGalleryChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+
+    if (files.length === 0) return;
+
+    const nextItems = files.map((file) => {
+      const objectUrl = URL.createObjectURL(file);
+      galleryObjectUrlsRef.current.push(objectUrl);
+
+      return {
+        url: objectUrl,
+        file,
+      };
+    });
+
+    setGalleryItems((prev) => [...prev, ...nextItems]);
+
+    if (galleryInputRef.current) {
+      galleryInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveGalleryItem = (index: number) => {
+    setGalleryItems((prev) => {
+      const item = prev[index];
+
+      if (item?.url.startsWith("blob:")) {
+        URL.revokeObjectURL(item.url);
+        galleryObjectUrlsRef.current = galleryObjectUrlsRef.current.filter(
+          (url) => url !== item.url,
+        );
+      }
+
+      return prev.filter((_, itemIndex) => itemIndex !== index);
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
+
     const payload = {
       _id: formData._id || `prod-${Date.now()}`,
       _type: "product",
@@ -158,21 +312,43 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
       isFeatured: formData.isFeatured || false,
     };
     try {
+      const thumbnailUrl = thumbnailFile
+        ? await handleUpload(thumbnailFile)
+        : formData.thumbnail || "";
+
+      const images = await Promise.all(
+        galleryItems.map(async (item) => ({
+          url: item.file ? await handleUpload(item.file) : item.url,
+        })),
+      );
+
+      const finalPayload = {
+        ...payload,
+        thumbnail: thumbnailUrl,
+        images,
+      };
+
       // update product
       if (product) {
-        await handleProductUpdate(product._id, payload);
+        await handleProductUpdate(product._id, finalPayload);
 
         toast.success("Product updated successfully");
       }
 
       // create product
       else {
-        await addDoc(collection(db, "products"), payload);
+        await addDoc(collection(db, "products"), finalPayload);
 
         toast.success("Product created successfully");
       }
 
       setFormData(defaultProduct);
+      setThumbnailFile(null);
+      setThumbnailPreview("");
+      setGalleryItems([]);
+      clearThumbnailObjectUrl();
+      clearGalleryObjectUrls();
+      clearImageInputs();
 
       onClose();
     } catch (error) {
@@ -188,8 +364,12 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
 
   const tabs = [
     { id: "basic", label: "Basic" },
+    { id: "images", label: "Images" },
     { id: "inventory", label: "Inventory" },
     { id: "details", label: "Details" },
+    { id: "ingredients", label: "Ingredients" },
+    { id: "faqs", label: "FAQs" },
+    { id: "specs", label: "Specs" },
   ];
 
   return (
@@ -317,20 +497,134 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
                   </select>
                 </div>
               </div>
+            </div>
+          )}
 
-              <div>
-                <label className="block text-sm font-medium text-slate-900 mb-1">
-                  Thumbnail URL
-                </label>
+          {/* Images Tab */}
+          {activeTab === "images" && (
+            <div className="space-y-6 max-h-96 overflow-y-auto">
+              {/* Thumbnail Section */}
+              <div className="border-b border-slate-200 pb-6">
+                <h3 className="text-sm font-semibold text-slate-900 mb-4">
+                  Thumbnail Image *
+                </h3>
+                {thumbnailPreview ? (
+                  <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                    <img
+                      src={thumbnailPreview}
+                      alt="Thumbnail preview"
+                      className="h-52 w-full object-cover"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={handleRemoveThumbnail}
+                      className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-white transition hover:bg-black"
+                      aria-label="Remove thumbnail"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+                    <span
+                      onClick={() => thumbnailInputRef.current?.click()}
+                      className="inline-flex p-2 cursor-pointer items-center justify-center rounded-lg hover:bg-slate-200"
+                    >
+                      <Upload size={16} />
+                    </span>
+
+                    <p className="mt-2 text-sm text-slate-500">
+                      PNG, JPG, GIF or WebP.
+                    </p>
+                  </div>
+                )}
+
                 <input
-                  type="text"
-                  value={formData.thumbnail || ""}
-                  onChange={(e) =>
-                    handleInputChange("thumbnail", e.target.value)
-                  }
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="https://..."
+                  ref={thumbnailInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleThumbnailChange}
+                  className="hidden"
                 />
+
+                {thumbnailPreview && (
+                  <div className="mt-3 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => thumbnailInputRef.current?.click()}
+                      className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium transition hover:bg-slate-50"
+                    >
+                      Replace thumbnail
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleRemoveThumbnail}
+                      className="text-sm font-medium text-slate-600 transition hover:text-slate-900"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Product Images Gallery Section */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 mb-4">
+                  Product Images Gallery
+                </h3>
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+                  <span
+                    onClick={() => galleryInputRef.current?.click()}
+                    className="inline-flex p-2 cursor-pointer items-center justify-center rounded-lg hover:bg-slate-200"
+                  >
+                    <Upload size={16} />
+                  </span>
+
+                  <p className="mt-2 text-sm text-slate-500">
+                    Select one or more images to add to the gallery.
+                  </p>
+
+                  <input
+                    ref={galleryInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleGalleryChange}
+                    className="hidden"
+                  />
+                </div>
+
+                {galleryItems.length > 0 ? (
+                  <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                    {galleryItems.map((img, index) => (
+                      <div
+                        key={`${img.url}-${index}`}
+                        className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                      >
+                        <img
+                          src={img.url}
+                          alt={`Product image ${index + 1}`}
+                          className="h-36 w-full object-cover"
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveGalleryItem(index)}
+                          className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-white transition hover:bg-black"
+                          aria-label={`Remove image ${index + 1}`}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-slate-500 italic">
+                    No gallery images added yet.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -421,6 +715,44 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
                   </label>
                 </div>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-900 mb-2">
+                  Badges
+                </label>
+                <div className="space-y-2">
+                  {(formData.badges || []).map((item, index) => (
+                    <div key={index} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={item}
+                        onChange={(e) =>
+                          handleArrayChange("badges", index, e.target.value)
+                        }
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        placeholder="e.g., Premium, Bestseller"
+                      />
+                      {(formData.badges || []).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => removeArrayItem("badges", index)}
+                          className="px-2 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => addArrayItem("badges", "")}
+                  className="mt-2 flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700"
+                >
+                  <Plus size={16} />
+                  Add Badge
+                </button>
+              </div>
             </div>
           )}
 
@@ -467,6 +799,170 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
 
               <div>
                 <label className="block text-sm font-medium text-slate-900 mb-2">
+                  How to Use
+                </label>
+                <div className="space-y-2">
+                  {(formData.howToUse || []).map((item, index) => (
+                    <div key={index} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={item}
+                        onChange={(e) =>
+                          handleArrayChange("howToUse", index, e.target.value)
+                        }
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        placeholder="Enter usage step"
+                      />
+                      {(formData.howToUse || []).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => removeArrayItem("howToUse", index)}
+                          className="px-2 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => addArrayItem("howToUse", "")}
+                  className="mt-2 flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700"
+                >
+                  <Plus size={16} />
+                  Add Step
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-900 mb-2">
+                  Warnings
+                </label>
+                <div className="space-y-2">
+                  {(formData.warnings || []).map((item, index) => (
+                    <div key={index} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={item}
+                        onChange={(e) =>
+                          handleArrayChange("warnings", index, e.target.value)
+                        }
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        placeholder="Enter warning"
+                      />
+                      {(formData.warnings || []).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => removeArrayItem("warnings", index)}
+                          className="px-2 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => addArrayItem("warnings", "")}
+                  className="mt-2 flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700"
+                >
+                  <Plus size={16} />
+                  Add Warning
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-900 mb-2">
+                  Storage Instructions
+                </label>
+                <div className="space-y-2">
+                  {(formData.storageInstructions || []).map((item, index) => (
+                    <div key={index} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={item}
+                        onChange={(e) =>
+                          handleArrayChange(
+                            "storageInstructions",
+                            index,
+                            e.target.value,
+                          )
+                        }
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        placeholder="Enter storage instruction"
+                      />
+                      {(formData.storageInstructions || []).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removeArrayItem("storageInstructions", index)
+                          }
+                          className="px-2 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => addArrayItem("storageInstructions", "")}
+                  className="mt-2 flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700"
+                >
+                  <Plus size={16} />
+                  Add Instruction
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-900 mb-2">
+                  Certifications
+                </label>
+                <div className="space-y-2">
+                  {(formData.certifications || []).map((item, index) => (
+                    <div key={index} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={item}
+                        onChange={(e) =>
+                          handleArrayChange(
+                            "certifications",
+                            index,
+                            e.target.value,
+                          )
+                        }
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        placeholder="e.g., ISO 9001"
+                      />
+                      {(formData.certifications || []).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removeArrayItem("certifications", index)
+                          }
+                          className="px-2 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => addArrayItem("certifications", "")}
+                  className="mt-2 flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700"
+                >
+                  <Plus size={16} />
+                  Add Certification
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-900 mb-2">
                   Tags
                 </label>
                 <div className="space-y-2">
@@ -505,6 +1001,204 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
             </div>
           )}
 
+          {/* Ingredients Tab */}
+          {activeTab === "ingredients" && (
+            <div className="space-y-4 max-h-96 overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-slate-900 mb-2">
+                  Ingredients
+                </label>
+                <div className="space-y-3">
+                  {(formData.ingredients || []).map((item, index) => (
+                    <div key={index} className="flex gap-2">
+                      <div className="flex-1 space-y-1">
+                        <input
+                          type="text"
+                          value={item.title}
+                          onChange={(e) =>
+                            handleObjectArrayChange(
+                              "ingredients",
+                              index,
+                              "title",
+                              e.target.value,
+                            )
+                          }
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="Ingredient name"
+                        />
+                        <textarea
+                          value={item.description}
+                          onChange={(e) =>
+                            handleObjectArrayChange(
+                              "ingredients",
+                              index,
+                              "description",
+                              e.target.value,
+                            )
+                          }
+                          rows={2}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="Ingredient description"
+                        />
+                      </div>
+                      {(formData.ingredients || []).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => removeArrayItem("ingredients", index)}
+                          className="px-2 py-2 text-red-600 hover:bg-red-50 rounded-lg h-fit"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    addArrayItem("ingredients", { title: "", description: "" })
+                  }
+                  className="mt-2 flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700"
+                >
+                  <Plus size={16} />
+                  Add Ingredient
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* FAQs Tab */}
+          {activeTab === "faqs" && (
+            <div className="space-y-4 max-h-96 overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-slate-900 mb-2">
+                  FAQs
+                </label>
+                <div className="space-y-3">
+                  {(formData.faqs || []).map((item, index) => (
+                    <div key={index} className="flex gap-2">
+                      <div className="flex-1 space-y-1">
+                        <input
+                          type="text"
+                          value={item.question}
+                          onChange={(e) =>
+                            handleObjectArrayChange(
+                              "faqs",
+                              index,
+                              "question",
+                              e.target.value,
+                            )
+                          }
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="Question"
+                        />
+                        <textarea
+                          value={item.answer}
+                          onChange={(e) =>
+                            handleObjectArrayChange(
+                              "faqs",
+                              index,
+                              "answer",
+                              e.target.value,
+                            )
+                          }
+                          rows={2}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="Answer"
+                        />
+                      </div>
+                      {(formData.faqs || []).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => removeArrayItem("faqs", index)}
+                          className="px-2 py-2 text-red-600 hover:bg-red-50 rounded-lg h-fit"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    addArrayItem("faqs", { question: "", answer: "" })
+                  }
+                  className="mt-2 flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700"
+                >
+                  <Plus size={16} />
+                  Add FAQ
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Specifications Tab */}
+          {activeTab === "specs" && (
+            <div className="space-y-4 max-h-96 overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-slate-900 mb-2">
+                  Specifications
+                </label>
+                <div className="space-y-2">
+                  {(formData.specifications || []).map((item, index) => (
+                    <div key={index} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={item.label}
+                        onChange={(e) =>
+                          handleObjectArrayChange(
+                            "specifications",
+                            index,
+                            "label",
+                            e.target.value,
+                          )
+                        }
+                        className="w-1/3 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        placeholder="Label"
+                      />
+                      <input
+                        type="text"
+                        value={item.value}
+                        onChange={(e) =>
+                          handleObjectArrayChange(
+                            "specifications",
+                            index,
+                            "value",
+                            e.target.value,
+                          )
+                        }
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        placeholder="Value"
+                      />
+                      {(formData.specifications || []).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removeArrayItem("specifications", index)
+                          }
+                          className="px-2 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    addArrayItem("specifications", { label: "", value: "" })
+                  }
+                  className="mt-2 flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700"
+                >
+                  <Plus size={16} />
+                  Add Specification
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Footer */}
           <div className="flex gap-3 justify-end border-t border-slate-200 pt-6">
             <button
@@ -515,10 +1209,18 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
               Cancel
             </button>
             <button
+              disabled={loading}
               type="submit"
-              className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors font-medium"
+              className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-lg transition-colors font-medium"
             >
-              {product ? "Update" : "Create"} Product
+              {loading ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : product ? (
+                "Update"
+              ) : (
+                "Create"
+              )}{" "}
+              Product
             </button>
           </div>
         </form>

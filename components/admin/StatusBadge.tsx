@@ -15,10 +15,16 @@ export function StatusBadge({
   }
 
   const getVariant = (status: string) => {
-    if (status === 'paid' || status === 'shipped' || status === 'active' || status === 'published') {
+    if (
+      status === 'confirmed' ||
+      status === 'shipped' ||
+      status === 'delivered' ||
+      status === 'active' ||
+      status === 'published'
+    ) {
       return 'success'
     }
-    if (status === 'pending' || status === 'draft') {
+    if (status === 'pending' || status === 'processing' || status === 'draft') {
       return 'warning'
     }
     if (status === 'cancelled' || status === 'inactive') {

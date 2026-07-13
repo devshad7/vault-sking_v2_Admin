@@ -170,7 +170,7 @@ export const orders: OrderItem[] = [
     customerName: "Asha B.",
     email: "asha@example.com",
     totalPrice: 5800,
-    status: "paid",
+    status: "confirmed",
     invoice: { number: "INV-1001" },
   },
   {

@@ -1,107 +1,184 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { Search, Eye } from 'lucide-react'
-import { DataTable } from '@/components/admin/DataTable'
-import { StatusBadge } from '@/components/admin/StatusBadge'
-import { OrderItem } from '@/lib/types'
-import { orders as mockOrders } from '@/lib/mockData'
-import { OrderModal } from '@/components/admin/OrderModal'
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { Eye, Search } from "lucide-react";
+import { collection, onSnapshot } from "firebase/firestore";
+
+import { StatusBadge } from "@/components/admin/StatusBadge";
+import { db } from "@/config/firebase.config";
+import {
+  formatCurrency,
+  formatOrderDate,
+  getCustomerName,
+  getOrderNumber,
+  toDate,
+} from "@/lib/order-utils";
+import { AdminOrder } from "@/lib/types";
 
 export default function OrdersPage() {
-  const [orders, setOrders] = useState<OrderItem[]>(mockOrders)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [selectedOrder, setSelectedOrder] = useState<OrderItem | null>(null)
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const filteredOrders = orders.filter(
-    (o) =>
-      o.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.email.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "orders"),
+      (snapshot) => {
+        const nextOrders = snapshot.docs
+          .map(
+            (orderDocument) =>
+              ({
+                ...(orderDocument.data() as Omit<AdminOrder, "id">),
+                id: orderDocument.id,
+              }) as AdminOrder,
+          )
+          .sort(
+            (firstOrder, secondOrder) =>
+              (toDate(secondOrder.createdAt)?.getTime() ?? 0) -
+              (toDate(firstOrder.createdAt)?.getTime() ?? 0),
+          );
 
-  const handleView = (order: OrderItem) => {
-    setSelectedOrder(order)
-    setIsModalOpen(true)
-  }
+        setOrders(nextOrders);
+        setError("");
+        setLoading(false);
+      },
+      (snapshotError) => {
+        console.error("Unable to load orders:", snapshotError);
+        setError("Orders could not be loaded. Please check your Firestore permissions and try again.");
+        setLoading(false);
+      },
+    );
 
-  const handleStatusChange = (order: OrderItem, newStatus: OrderItem['status']) => {
-    setOrders(
-      orders.map((o) => (o.orderNumber === order.orderNumber ? { ...o, status: newStatus } : o))
-    )
-    alert(`Order status updated to ${newStatus}`)
-  }
+    return unsubscribe;
+  }, []);
+
+  const filteredOrders = useMemo(() => {
+    const search = searchTerm.trim().toLowerCase();
+
+    if (!search) return orders;
+
+    return orders.filter((order) =>
+      [
+        getOrderNumber(order),
+        getCustomerName(order),
+        order.customer?.email,
+        order.customer?.phone,
+        order.userId,
+      ].some((value) => value?.toLowerCase().includes(search)),
+    );
+  }, [orders, searchTerm]);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Orders</h1>
-        <p className="text-slate-600 mt-1">Manage customer orders ({orders.length} total)</p>
+        <p className="mt-1 text-slate-600">Manage customer orders ({orders.length} total)</p>
       </div>
 
       <div className="relative">
         <Search className="absolute left-3 top-3 text-slate-400" size={20} />
         <input
-          type="text"
-          placeholder="Search by order number, customer name, or email..."
+          type="search"
+          placeholder="Search by order number, customer name, email, or phone..."
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+          onChange={(event) => setSearchTerm(event.target.value)}
+          className="w-full rounded-lg border border-slate-300 py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-orange-500"
         />
       </div>
 
-      <DataTable
-        data={filteredOrders}
-        columns={[
-          {
-            key: 'orderNumber',
-            label: 'Order #',
-            render: (value) => <span className="font-medium text-slate-900">{value}</span>,
-          },
-          {
-            key: 'customerName',
-            label: 'Customer',
-            render: (_, item) => (
-              <div>
-                <p className="font-medium text-slate-900">{item.customerName}</p>
-                <p className="text-xs text-slate-500">{item.email}</p>
-              </div>
-            ),
-          },
-          {
-            key: 'orderDate',
-            label: 'Date',
-            render: (value) => new Date(value).toLocaleDateString(),
-          },
-          {
-            key: 'totalPrice',
-            label: 'Amount',
-            render: (value) => (
-              <span className="font-medium">NPR {value.toLocaleString()}</span>
-            ),
-          },
-          {
-            key: 'status',
-            label: 'Status',
-            render: (value) => <StatusBadge status={value} />,
-          },
-        ]}
-        onEdit={handleView}
-      />
-
-      <OrderModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false)
-          setSelectedOrder(null)
-        }}
-        order={selectedOrder || undefined}
-        onStatusChange={(order, newStatus) => {
-          handleStatusChange(order, newStatus)
-          setIsModalOpen(false)
-        }}
-      />
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[850px]">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  {[
+                    "Order #",
+                    "Customer",
+                    "Date",
+                    "Payment",
+                    "Amount",
+                    "Status",
+                    "",
+                  ].map((heading) => (
+                    <th
+                      key={heading || "actions"}
+                      className="px-6 py-3 text-left text-sm font-semibold text-slate-900"
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
+                      Loading orders…
+                    </td>
+                  </tr>
+                ) : filteredOrders.length ? (
+                  filteredOrders.map((order) => (
+                    <tr key={order.id} className="transition-colors hover:bg-slate-50">
+                      <td className="px-6 py-4 text-sm">
+                        <Link
+                          href={`/admin/orders/${encodeURIComponent(order.id)}`}
+                          className="font-semibold text-slate-900 hover:text-orange-600"
+                        >
+                          {getOrderNumber(order)}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <p className="font-medium text-slate-900">{getCustomerName(order)}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{order.customer?.email || "No email"}</p>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-700">
+                        {formatOrderDate(order.createdAt)}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <p className="capitalize text-slate-900">{order.payment?.method || "—"}</p>
+                        <p
+                          className={`mt-0.5 text-xs ${
+                            order.payment?.verified ? "text-green-600" : "text-amber-600"
+                          }`}
+                        >
+                          {order.payment?.verified ? "Verified" : "Not verified"}
+                        </p>
+                      </td>
+                      <td className="px-6 py-4 text-sm font-semibold text-slate-900">
+                        {formatCurrency(order.totals?.total)}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <StatusBadge status={order.status || "pending"} />
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <Link
+                          href={`/admin/orders/${encodeURIComponent(order.id)}`}
+                          className="inline-flex rounded-lg p-2 text-blue-600 transition-colors hover:bg-blue-100"
+                          title="View order details"
+                          aria-label={`View order ${getOrderNumber(order)}`}
+                        >
+                          <Eye size={18} />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
+                      {searchTerm ? "No orders match your search." : "No orders have been placed yet."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
-  )
+  );
 }
