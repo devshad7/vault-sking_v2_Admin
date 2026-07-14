@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import { db } from "@/config/firebase.config";
 import { Category } from "@/lib/types";
 import { handleCategoryUpdate } from "@/lib/helper";
+import { slugify } from "@/lib/slugify";
 
 interface CategoryModalProps {
   isOpen: boolean;
@@ -138,8 +139,7 @@ export function CategoryModal({
         slug: {
           current:
             formData.slug?.current ||
-            formData.title?.trim().toLowerCase().replace(/\s+/g, "-") ||
-            "",
+            slugify(formData.title || ""),
         },
       };
 

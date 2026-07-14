@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import { Blog } from '@/lib/types'
+import { slugify } from '@/lib/slugify'
 
 interface BlogModalProps {
   isOpen: boolean
@@ -34,8 +35,7 @@ export function BlogModal({ isOpen, onClose, onSave, blog }: BlogModalProps) {
       slug: {
         current:
           formData.slug?.current ||
-          formData.title?.toLowerCase().replace(/\s+/g, '-') ||
-          '',
+          slugify(formData.title || ''),
       },
       mainImage: formData.mainImage || '',
       blogcategories: formData.blogcategories || [{ title: 'Uncategorized' }],

@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import { db } from "@/config/firebase.config";
 import { Brand } from "@/lib/types";
 import { handleBrandUpdate } from "@/lib/helper";
+import { slugify } from "@/lib/slugify";
 
 interface BrandModalProps {
   isOpen: boolean;
@@ -128,8 +129,7 @@ export function BrandModal({ isOpen, onClose, brand }: BrandModalProps) {
         slug: {
           current:
             formData.slug?.current ||
-            formData.title?.trim().toLowerCase().replace(/\s+/g, "-") ||
-            "",
+            slugify(formData.title || ""),
         },
       };
 

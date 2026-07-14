@@ -8,6 +8,7 @@ import {
   fetchCategories,
   handleProductUpdate,
 } from "@/lib/helper";
+import { slugify } from "@/lib/slugify";
 import { addDoc, collection } from "firebase/firestore";
 import { db } from "@/config/firebase.config";
 import toast from "react-hot-toast";
@@ -93,6 +94,10 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
     product || defaultProduct,
   );
   const [activeTab, setActiveTab] = useState("basic");
+  const [slugValue, setSlugValue] = useState(
+    product?.slug?.current || "",
+  );
+  const [isSlugManuallyEdited, setIsSlugManuallyEdited] = useState(false);
 
   const clearThumbnailObjectUrl = () => {
     if (thumbnailObjectUrlRef.current) {
@@ -124,12 +129,15 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
       setGalleryItems(
         (product.images || []).map((image) => ({ url: image.url })),
       );
+      setSlugValue(product.slug?.current || "");
     } else {
       setFormData(defaultProduct);
       setThumbnailPreview("");
       setGalleryItems([]);
+      setSlugValue("");
     }
 
+    setIsSlugManuallyEdited(false);
     setThumbnailFile(null);
     clearThumbnailObjectUrl();
     clearGalleryObjectUrls();
@@ -147,6 +155,17 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
 
   const handleInputChange = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+
+    // Auto-generate slug from title unless the user has manually edited it
+    if (field === "name" && !isSlugManuallyEdited) {
+      setSlugValue(slugify(value as string));
+    }
+  };
+
+  const handleSlugChange = (value: string) => {
+    setIsSlugManuallyEdited(true);
+    // Allow only valid slug characters while typing
+    setSlugValue(value.toLowerCase().replace(/[^a-z0-9-]/g, ""));
   };
 
   const handleObjectArrayChange = (
@@ -278,12 +297,14 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
     e.preventDefault();
     setLoading(true);
 
+    const finalSlug = slugValue.trim() || slugify(formData.name || "");
+
     const payload = {
       _id: formData._id || `prod-${Date.now()}`,
       _type: "product",
       id: formData.id || `prod-${Date.now()}`,
       slug: {
-        current: formData.name?.toLowerCase().replace(/\s+/g, "-") || "",
+        current: finalSlug,
       },
       name: formData.name || "",
       description: formData.description || "",
@@ -437,6 +458,24 @@ export function ProductModal({ isOpen, onClose, product }: ProductModalProps) {
                     placeholder="Enter SKU"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-900 mb-1">
+                  Slug
+                </label>
+                <input
+                  type="text"
+                  value={slugValue}
+                  onChange={(e) => handleSlugChange(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono text-sm"
+                  placeholder="auto-generated-from-title"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  {isSlugManuallyEdited
+                    ? "Manually edited — clear the field to resume auto-generation."
+                    : "Auto-generated from the product name. Edit to customize."}
+                </p>
               </div>
 
               <div>
