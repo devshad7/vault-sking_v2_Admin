@@ -82,6 +82,14 @@ export type Announcement = {
   emoji?: string;
 };
 
+/**
+ * Payment method / status shared between the storefront checkout
+ * (Manual QR Payment support) and the admin panel.
+ */
+export type PaymentMethod = "cod" | "qr";
+
+export type PaymentStatus = "pending" | "verified" | "rejected";
+
 export type OrderItem = {
   orderNumber: string;
   orderDate: string;
@@ -101,6 +109,11 @@ export type OrderItem = {
     product: Product;
     quantity: number;
   }>;
+  // Payment (added for Manual QR Payment support)
+  paymentMethod?: PaymentMethod;
+  paymentStatus?: PaymentStatus;
+  transactionId?: string;
+  paymentScreenshot?: string;
 };
 
 /**
@@ -184,8 +197,11 @@ export type AdminOrder = {
   customer?: OrderCustomer;
   shippingAddress?: ShippingAddress;
   payment?: {
-    method?: string;
+    method?: PaymentMethod;
     verified?: boolean;
+    status?: PaymentStatus;
+    transactionId?: string;
+    paymentScreenshot?: string;
   };
   totals?: {
     subtotal?: number;

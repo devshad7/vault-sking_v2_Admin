@@ -93,7 +93,7 @@ export default function OrdersPage() {
       ) : (
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px]">
+            <table className="w-full min-w-212.5">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
                   {[

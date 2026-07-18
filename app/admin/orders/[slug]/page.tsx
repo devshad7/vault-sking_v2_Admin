@@ -254,7 +254,7 @@ export default function OrderDetailsPage() {
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
                       {formatFieldLabel(field)}
                     </dt>
-                    <dd className="mt-1 break-words text-sm font-medium text-slate-900">{String(value)}</dd>
+                    <dd className="mt-1 wrap-break-word text-sm font-medium text-slate-900">{String(value)}</dd>
                   </div>
                 ))}
               </dl>
@@ -335,6 +335,35 @@ export default function OrderDetailsPage() {
                   {order.payment?.verified ? "Verified" : "Not verified"}
                 </span>
               </div>
+              {order.payment?.method === "qr" && (
+                <>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-slate-600">Transaction ID</span>
+                    <span className="break-all font-medium text-slate-900">
+                      {order.payment?.transactionId || "—"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-600">Payment screenshot</span>
+                    {order.payment?.paymentScreenshot ? (
+                      <a
+                        href={order.payment.paymentScreenshot}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 block overflow-hidden rounded-lg border border-slate-200"
+                      >
+                        <img
+                          src={order.payment.paymentScreenshot}
+                          alt="Payment screenshot"
+                          className="max-h-56 w-full object-contain bg-slate-50"
+                        />
+                      </a>
+                    ) : (
+                      <p className="mt-1 text-sm text-slate-500">No screenshot uploaded</p>
+                    )}
+                  </div>
+                </>
+              )}
               <button
                 onClick={togglePaymentVerification}
                 disabled={isUpdatingPayment}

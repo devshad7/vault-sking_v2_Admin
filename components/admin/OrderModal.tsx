@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X } from 'lucide-react'
+import { X, ExternalLink } from 'lucide-react'
 import { OrderItem } from '@/lib/types'
 import { StatusBadge } from './StatusBadge'
 
@@ -10,10 +10,32 @@ interface OrderModalProps {
   onClose: () => void
   order?: OrderItem
   onStatusChange?: (order: OrderItem, newStatus: OrderItem['status']) => void
+  onPaymentStatusChange?: (
+    order: OrderItem,
+    newPaymentStatus: NonNullable<OrderItem['paymentStatus']>
+  ) => void
 }
 
-export function OrderModal({ isOpen, onClose, order, onStatusChange }: OrderModalProps) {
+const paymentStatusStyles: Record<
+  NonNullable<OrderItem['paymentStatus']>,
+  string
+> = {
+  pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+  verified: 'bg-green-100 text-green-800 border-green-200',
+  rejected: 'bg-red-100 text-red-800 border-red-200',
+}
+
+export function OrderModal({
+  isOpen,
+  onClose,
+  order,
+  onStatusChange,
+  onPaymentStatusChange,
+}: OrderModalProps) {
   const [newStatus, setNewStatus] = useState<OrderItem['status']>(order?.status || 'pending')
+  const [newPaymentStatus, setNewPaymentStatus] = useState<
+    NonNullable<OrderItem['paymentStatus']>
+  >(order?.paymentStatus || 'pending')
 
   if (!isOpen || !order) return null
 
@@ -22,6 +44,14 @@ export function OrderModal({ isOpen, onClose, order, onStatusChange }: OrderModa
       onStatusChange(order, newStatus)
     }
   }
+
+  const handlePaymentStatusUpdate = () => {
+    if (onPaymentStatusChange) {
+      onPaymentStatusChange(order, newPaymentStatus)
+    }
+  }
+
+  const isQrPayment = order.paymentMethod === 'qr'
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -90,6 +120,82 @@ export function OrderModal({ isOpen, onClose, order, onStatusChange }: OrderModa
                 >
                   Update
                 </button>
+              )}
+            </div>
+          </div>
+
+          {/* Payment Details */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-slate-900">Payment Details</h3>
+            <div className="bg-slate-50 rounded-lg p-4 space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-slate-600">Payment Method</p>
+                  <p className="font-medium text-slate-900">
+                    {isQrPayment ? 'Manual QR Payment' : 'Cash on Delivery'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-slate-600">Payment Status</p>
+                  <span
+                    className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-xs font-medium border ${
+                      paymentStatusStyles[order.paymentStatus || 'pending']
+                    }`}
+                  >
+                    {(order.paymentStatus || 'pending').toUpperCase()}
+                  </span>
+                </div>
+              </div>
+
+              {isQrPayment && (
+                <>
+                  <div>
+                    <p className="text-slate-600">Transaction ID</p>
+                    <p className="font-medium text-slate-900">
+                      {order.transactionId || '—'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-600 mb-1">Payment Screenshot</p>
+                    {order.paymentScreenshot ? (
+                      <a
+                        href={order.paymentScreenshot}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        View Screenshot <ExternalLink size={14} />
+                      </a>
+                    ) : (
+                      <p className="text-slate-500">No screenshot uploaded</p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-4 pt-2 border-t border-slate-200">
+                    <select
+                      value={newPaymentStatus}
+                      onChange={(e) =>
+                        setNewPaymentStatus(
+                          e.target.value as NonNullable<OrderItem['paymentStatus']>
+                        )
+                      }
+                      className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="verified">Verified</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                    {newPaymentStatus !== (order.paymentStatus || 'pending') && (
+                      <button
+                        onClick={handlePaymentStatusUpdate}
+                        className="px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors font-medium text-sm"
+                      >
+                        Update Payment
+                      </button>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           </div>
