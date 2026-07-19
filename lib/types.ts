@@ -12,6 +12,7 @@ export type Product = {
   _id: string;
   _type: "product";
   id: string;
+  richDescription?: string;
   slug: ProductSlug;
   name: string;
   description: string;
@@ -72,6 +73,7 @@ export type Blog = {
   slug: ProductSlug;
   mainImage: string;
   blogcategories: Array<{ title: string }>;
+  richDescription?: string;
   publishedAt: string;
   author: { name: string };
   body: string;

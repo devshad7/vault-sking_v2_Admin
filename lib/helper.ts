@@ -1,15 +1,17 @@
-import { db } from "@/config/firebase.config";
+import { db, storage } from "@/config/firebase.config";
 import {
   collection,
   deleteDoc,
   doc,
   updateDoc,
+  addDoc,
   getDocs,
   query,
   where,
   getCountFromServer,
 } from "firebase/firestore";
-import { Brand, Category } from "./types";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { Brand, Category, Blog } from "./types";
 import toast from "react-hot-toast";
 
 export const handleCategoryDelete = async (categoryId: string) => {
@@ -89,4 +91,48 @@ export const getCategoryProductCount = async (
   const snapshot = await getCountFromServer(q);
 
   return snapshot.data().count;
+};
+
+// ---- Blogs ----
+
+export const fetchBlogs = async (): Promise<Blog[]> => {
+  const snapshot = await getDocs(collection(db, "blogs"));
+
+  return snapshot.docs.map((doc) => ({
+    ...(doc.data() as Omit<Blog, "_id">),
+    _id: doc.id,
+  }));
+};
+
+export const handleBlogCreate = async (
+  blog: Omit<Blog, "_id">,
+): Promise<string> => {
+  const docRef = await addDoc(collection(db, "blogs"), blog);
+  return docRef.id;
+};
+
+export const handleBlogUpdate = async (
+  blogId: string,
+  updatedData: Partial<Blog>,
+): Promise<void> => {
+  const blogRef = doc(db, "blogs", blogId);
+  await updateDoc(blogRef, updatedData);
+};
+
+export const handleBlogDelete = async (blogId: string): Promise<void> => {
+  const blogRef = doc(db, "blogs", blogId);
+
+  await deleteDoc(blogRef);
+  toast.success("Blog deleted successfully");
+};
+
+/**
+ * Uploads an image (e.g. from the blog rich text editor) to Firebase
+ * Storage under `blog-images/` and returns its public download URL.
+ */
+export const uploadBlogImage = async (file: File): Promise<string> => {
+  const path = `blog-images/${Date.now()}-${file.name}`;
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, file);
+  return getDownloadURL(storageRef);
 };

@@ -12,26 +12,41 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "../ui/alert-dialog";
+} from "@/components/ui/alert-dialog";
 import {
   handleBrandDelete,
   handleCategoryDelete,
   handleProductDelete,
 } from "@/lib/helper";
 
-interface Column<T> {
-  key: keyof T;
+interface Column<T, K extends keyof T = keyof T> {
+  key: K;
   label: string;
-  render?: (value: T[keyof T], item: T) => React.ReactNode;
+  render?: (value: T[K], item: T) => React.ReactNode;
 }
+
+// Distributing over `keyof T` so each array entry keeps its own `K`,
+// instead of every column sharing one wide `T[keyof T]` union for `value`.
+type Columns<T extends { _id: string }> = {
+  [K in keyof T]: Column<T, K>;
+}[keyof T][];
 
 interface DataTableProps<T extends { _id: string }> {
   data: T[];
-  columns: Column<T>[];
-  type: "category" | "brand" | "product";
+  columns: Columns<T>;
+  // Optional now: only required by the built-in Firestore delete path
+  // (category/brand/product). Existing callers that already pass this
+  // keep working exactly as before.
+  type?: "category" | "brand" | "product";
 
-  setIsOpen: (isOpen: boolean) => void;
+  // Optional now, for the same reason as `type` above.
+  setIsOpen?: (isOpen: boolean) => void;
   onEdit: (item: T) => void;
+  // New: for callers (like blogs) that manage delete themselves instead of
+  // going through the Firestore handlers below. When provided, it takes
+  // priority and the confirmation dialog is skipped, since the caller is
+  // expected to confirm on its own.
+  onDelete?: (item: T) => void;
 
   pageSize?: number;
 }
@@ -41,6 +56,7 @@ export function DataTable<T extends { _id: string }>({
   columns,
   setIsOpen,
   onEdit,
+  onDelete,
   type,
   pageSize = 10,
 }: DataTableProps<T>) {
@@ -96,7 +112,7 @@ export function DataTable<T extends { _id: string }>({
                         <button
                           onClick={() => {
                             onEdit(item);
-                            setIsOpen(true);
+                            setIsOpen?.(true);
                           }}
                           className="rounded-lg p-2 text-blue-600 transition-colors hover:bg-blue-100"
                           title="Edit"
@@ -105,50 +121,60 @@ export function DataTable<T extends { _id: string }>({
                         </button>
 
                         {/* delete */}
-                        <AlertDialog>
-                          <AlertDialogTrigger
-                            render={
-                              <button
-                                className="rounded-lg p-2 text-red-600 transition-colors hover:bg-red-100"
-                                title="Delete"
-                              >
-                                <Trash2 size={18} />
-                              </button>
-                            }
-                          ></AlertDialogTrigger>
+                        {onDelete ? (
+                          <button
+                            onClick={() => onDelete(item)}
+                            className="rounded-lg p-2 text-red-600 transition-colors hover:bg-red-100"
+                            title="Delete"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        ) : (
+                          <AlertDialog>
+                            <AlertDialogTrigger
+                              render={
+                                <button
+                                  className="rounded-lg p-2 text-red-600 transition-colors hover:bg-red-100"
+                                  title="Delete"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              }
+                            ></AlertDialogTrigger>
 
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                {type === "category"
-                                  ? "Delete Category?"
-                                  : "Delete Brand?"}
-                              </AlertDialogTitle>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  {type === "category"
+                                    ? "Delete Category?"
+                                    : "Delete Brand?"}
+                                </AlertDialogTitle>
 
-                              <AlertDialogDescription>
-                                This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
+                                <AlertDialogDescription>
+                                  This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
 
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
 
-                              <AlertDialogAction
-                                onClick={() =>
-                                  type === "category"
-                                    ? handleCategoryDelete(item._id)
-                                    : type === "brand"
-                                      ? handleBrandDelete(item._id)
-                                      : type === "product"
-                                        ? handleProductDelete(item._id)
-                                        : null
-                                }
-                              >
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                                <AlertDialogAction
+                                  onClick={() =>
+                                    type === "category"
+                                      ? handleCategoryDelete(item._id)
+                                      : type === "brand"
+                                        ? handleBrandDelete(item._id)
+                                        : type === "product"
+                                          ? handleProductDelete(item._id)
+                                          : null
+                                  }
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
                       </div>
                     </td>
                   </tr>

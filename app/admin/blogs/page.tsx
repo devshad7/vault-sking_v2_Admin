@@ -1,17 +1,40 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Search } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { DataTable } from '@/components/admin/DataTable'
 import { Blog } from '@/lib/types'
-import { blogs as mockBlogs } from '@/lib/mockData'
-import { BlogModal } from '@/components/admin/BlogModal'
+import { BlogModal } from '@/components/admin/BlogEditor/BlogModal'
+import {
+  fetchBlogs,
+  handleBlogCreate,
+  handleBlogUpdate,
+  handleBlogDelete,
+} from '@/lib/helper'
 
 export default function BlogsPage() {
-  const [blogs, setBlogs] = useState<Blog[]>(mockBlogs)
+  const [blogs, setBlogs] = useState<Blog[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedBlog, setSelectedBlog] = useState<Blog | null>(null)
+
+  useEffect(() => {
+    void loadBlogs()
+  }, [])
+
+  const loadBlogs = async () => {
+    setIsLoading(true)
+    try {
+      const data = await fetchBlogs()
+      setBlogs(data)
+    } catch {
+      toast.error('Failed to load blogs')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const filteredBlogs = blogs.filter((b) =>
     b.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -23,23 +46,33 @@ export default function BlogsPage() {
     setIsModalOpen(true)
   }
 
-  const handleDelete = (blog: Blog) => {
-    if (confirm(`Delete "${blog.title}"?`)) {
-      setBlogs(blogs.filter((b) => b._id !== blog._id))
-      alert('Blog deleted')
+  const handleDelete = async (blog: Blog) => {
+    if (!confirm(`Delete "${blog.title}"?`)) return
+    try {
+      await handleBlogDelete(blog._id)
+      setBlogs((prev) => prev.filter((b) => b._id !== blog._id))
+    } catch {
+      toast.error('Failed to delete blog')
     }
   }
 
-  const handleSaveBlog = (blog: Blog) => {
-    if (selectedBlog) {
-      setBlogs(blogs.map((b) => (b._id === blog._id ? blog : b)))
-      alert('Blog updated')
-    } else {
-      setBlogs([...blogs, blog])
-      alert('Blog added')
+  const handleSaveBlog = async (blog: Blog) => {
+    const { _id, ...rest } = blog
+    try {
+      if (selectedBlog) {
+        await handleBlogUpdate(_id, rest)
+        setBlogs((prev) => prev.map((b) => (b._id === _id ? blog : b)))
+        toast.success('Blog updated')
+      } else {
+        const newId = await handleBlogCreate(rest)
+        setBlogs((prev) => [...prev, { ...blog, _id: newId }])
+        toast.success('Blog added')
+      }
+      setIsModalOpen(false)
+      setSelectedBlog(null)
+    } catch {
+      toast.error('Failed to save blog')
     }
-    setIsModalOpen(false)
-    setSelectedBlog(null)
   }
 
   return (
@@ -72,49 +105,53 @@ export default function BlogsPage() {
         />
       </div>
 
-      <DataTable
-        data={filteredBlogs}
-        columns={[
-          {
-            key: 'title',
-            label: 'Blog Title',
-            render: (_, item) => (
-              <div className="flex items-center gap-3">
-                <img
-                  src={item.mainImage}
-                  alt={item.title}
-                  className="w-10 h-10 rounded-lg object-cover"
-                />
-                <div>
-                  <p className="font-medium text-slate-900">{item.title}</p>
-                  <p className="text-xs text-slate-500">{item.slug.current}</p>
+      {isLoading ? (
+        <div className="py-12 text-center text-slate-500">Loading blogs...</div>
+      ) : (
+        <DataTable
+          data={filteredBlogs}
+          columns={[
+            {
+              key: 'title',
+              label: 'Blog Title',
+              render: (_, item) => (
+                <div className="flex items-center gap-3">
+                  <img
+                    src={item.mainImage}
+                    alt={item.title}
+                    className="w-10 h-10 rounded-lg object-cover"
+                  />
+                  <div>
+                    <p className="font-medium text-slate-900">{item.title}</p>
+                    <p className="text-xs text-slate-500">{item.slug.current}</p>
+                  </div>
                 </div>
-              </div>
-            ),
-          },
-          {
-            key: 'author',
-            label: 'Author',
-            render: (value) => value.name,
-          },
-          {
-            key: 'publishedAt',
-            label: 'Published',
-            render: (value) => new Date(value).toLocaleDateString(),
-          },
-          {
-            key: 'blogcategories',
-            label: 'Category',
-            render: (value) => (
-              <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
-                {value[0]?.title || 'Uncategorized'}
-              </span>
-            ),
-          },
-        ]}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-      />
+              ),
+            },
+            {
+              key: 'author',
+              label: 'Author',
+              render: (value) => value.name,
+            },
+            {
+              key: 'publishedAt',
+              label: 'Published',
+              render: (value) => new Date(value).toLocaleDateString(),
+            },
+            {
+              key: 'blogcategories',
+              label: 'Category',
+              render: (value) => (
+                <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
+                  {value[0]?.title || 'Uncategorized'}
+                </span>
+              ),
+            },
+          ]}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
+      )}
 
       <BlogModal
         isOpen={isModalOpen}

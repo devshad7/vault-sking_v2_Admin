@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { X } from 'lucide-react'
 import { Blog } from '@/lib/types'
 import { slugify } from '@/lib/slugify'
+import { BlogEditor } from '@/components/admin/BlogEditor'
+import { sanitizeEditorHtml } from '@/lib/sanitizeHtml'
+import { uploadBlogImage } from '@/lib/helper'
 
 interface BlogModalProps {
   isOpen: boolean
@@ -27,8 +30,17 @@ export function BlogModal({ isOpen, onClose, onSave, blog }: BlogModalProps) {
 
   if (!isOpen) return null
 
+  const isBodyEmpty = (html: string) =>
+    !html || html.replace(/<[^>]*>/g, '').trim().length === 0
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (isBodyEmpty(formData.body || '')) {
+      alert('Blog content is required')
+      return
+    }
+
     const newBlog: Blog = {
       _id: formData._id || `blog-${Date.now()}`,
       title: formData.title || '',
@@ -41,9 +53,21 @@ export function BlogModal({ isOpen, onClose, onSave, blog }: BlogModalProps) {
       blogcategories: formData.blogcategories || [{ title: 'Uncategorized' }],
       publishedAt: formData.publishedAt || new Date().toISOString(),
       author: formData.author || { name: 'Anonymous' },
-      body: formData.body || '',
+      body: sanitizeEditorHtml(formData.body || ''),
     }
     onSave(newBlog)
+  }
+
+  // Uploads inserted/pasted/dragged images to Firebase Storage and returns
+  // the permanent public URL, so blog content images persist across
+  // sessions and are visible to every visitor, not just this browser tab.
+  const handleImageUpload = async (file: File): Promise<string> => {
+    try {
+      return await uploadBlogImage(file)
+    } catch (error) {
+      alert('Image upload failed. Please try again.')
+      throw error
+    }
   }
 
   return (
@@ -145,12 +169,10 @@ export function BlogModal({ isOpen, onClose, onSave, blog }: BlogModalProps) {
             <label className="block text-sm font-medium text-slate-900 mb-1">
               Blog Content *
             </label>
-            <textarea
+            <BlogEditor
               value={formData.body || ''}
-              onChange={(e) => setFormData({ ...formData, body: e.target.value })}
-              required
-              rows={5}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+              onChange={(html) => setFormData({ ...formData, body: html })}
+              onImageUpload={handleImageUpload}
               placeholder="Write your blog content here..."
             />
           </div>
